@@ -1,0 +1,23 @@
+# Go specific ignores
+*.out
+*.exe
+*.exe~
+*.dll
+*.so
+*.dSYM
+*.o
+*.a
+
+# Rust specific ignores
+/target/
+**/*.rs.bk
+**/*.rs.orig
+**/*.rs.swp
+
+# IDE specific ignores
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
