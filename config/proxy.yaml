@@ -1,0 +1,7 @@
+# Proxy Configuration
+
+proxy:
+  enabled: true
+  type: "http"
+  port: 8080
+  timeout: 30
