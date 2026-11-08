@@ -87,6 +87,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Identify tested source revision
+        run: |
+          mkdir -p reports
+          git rev-parse HEAD | tee reports/tested-commit.txt
+          git diff --exit-code
+          sha256sum tests/runtime_test.go tests/readiness.go compose.runtime.yaml scripts/runtime-network.sh > reports/runtime-source-sha256.txt
+          printf 'Runtime tests use commit `%s`. Historical run retries keep their original commit.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
@@ -108,10 +115,11 @@ jobs:
             exit 1
           fi
       - name: Run real container load and failure tests
-        run: go test ./tests -run TestContainerRuntime -count=1 -v -timeout=5m
+        run: go test ./tests -run TestContainerRuntime -count=2 -v -timeout=5m
         env:
           PROXY_RUNTIME_TEST: '1'
           PROXY_DEPLOY_DIR: ${{ github.workspace }}
+          PROXY_TEST_REVISION: ${{ github.sha }}
       - name: Save runtime evidence
         if: always()
         run: |

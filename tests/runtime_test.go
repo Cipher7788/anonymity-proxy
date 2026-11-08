@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -28,6 +29,7 @@ func TestContainerRuntime(t *testing.T) {
 	if root == "" {
 		t.Fatal("PROXY_DEPLOY_DIR required")
 	}
+	t.Logf("runtime suite revision=%s readiness_version=2", os.Getenv("PROXY_TEST_REVISION"))
 	secret := func(name string) string {
 		b, e := os.ReadFile(filepath.Join(root, "secrets", name))
 		if e != nil {
@@ -60,19 +62,23 @@ func TestContainerRuntime(t *testing.T) {
 			t.Fatalf("got %d want %d", resp.StatusCode, status)
 		}
 	}
-	health := func() error {
-		return ops.Health(context.Background(), "127.0.0.1:8080", true, "localhost", ca, "operator", password)
+	health := func(ctx context.Context) error {
+		return ops.Health(ctx, "127.0.0.1:8080", true, "localhost", ca, "operator", password)
 	}
 	waitHealthy := func(t *testing.T) {
 		t.Helper()
-		deadline := time.Now().Add(45 * time.Second)
-		for time.Now().Before(deadline) {
-			if health() == nil {
-				return
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		if err := waitForReadiness(ctx, 500*time.Millisecond, health); err != nil {
+			diagnostics := readinessDiagnostics(root)
+			report := fmt.Sprintf("revision=%s\n%v\n%s", os.Getenv("PROXY_TEST_REVISION"), err, diagnostics)
+			if e := os.MkdirAll(filepath.Join(root, "reports"), 0700); e == nil {
+				if e = os.WriteFile(filepath.Join(root, "reports", "readiness-failure.txt"), []byte(report), 0600); e != nil {
+					t.Logf("cannot save readiness report: %v", e)
+				}
 			}
-			time.Sleep(500 * time.Millisecond)
+			t.Fatalf("%s", report)
 		}
-		t.Fatal("proxy did not recover")
 	}
 	docker := func(t *testing.T, args ...string) []byte {
 		t.Helper()
