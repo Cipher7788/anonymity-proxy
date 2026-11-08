@@ -2,6 +2,8 @@
 
 ## Unreleased baseline
 
+- Added Linux Compose setup, certificate/secret initialization and rotation, renewal hook, health checks, read-only metrics, Prometheus/Alertmanager, firewall tooling, load/resource qualification, isolated runtime fault tests, image scanning/SBOM artifacts, and security review/release records.
+
 - Fixed delayed small streaming responses by flushing headers and copied chunks; added an SSE regression test.
 
 - Replaced the non-compiling HTTP scaffold with authenticated HTTP forwarding and HTTPS CONNECT.

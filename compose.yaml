@@ -1,18 +1,31 @@
 services:
   proxy:
     build: .
+    image: ${PROXY_IMAGE:-anonymity-proxy:local}
     restart: unless-stopped
     command: ["-config", "/etc/proxy/config.json"]
     environment:
       PROXY_USERNAME: ${PROXY_USERNAME:?Set PROXY_USERNAME}
       PROXY_PASSWORD_FILE: /run/secrets/proxy_password
+      PROXY_METRICS_TOKEN_FILE: /run/secrets/metrics_token
+      PROXY_CA_FILE: /run/secrets/proxy_ca
+      PROXY_TLS_SERVER_NAME: ${PROXY_TLS_SERVER_NAME:?Run proxyctl init first}
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${PROXY_BIND_IP:-127.0.0.1}:8080:8080"
     volumes:
       - ./config/container.json:/etc/proxy/config.json:ro
-      - ./tls:/run/tls:ro
     secrets:
       - proxy_password
+      - metrics_token
+      - proxy_tls_cert
+      - proxy_tls_key
+      - proxy_ca
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/proxy", "-config", "/etc/proxy/config.json", "-healthcheck"]
+      interval: 15s
+      timeout: 7s
+      retries: 3
+      start_period: 5s
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -20,6 +33,61 @@ services:
     mem_limit: 256m
     cpus: 1.0
     stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d", "--storage.tsdb.retention.size=1GB"]
+    ports: ["127.0.0.1:9090:9090"]
+    volumes:
+      - ./deploy/generated/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    secrets: [metrics_token, proxy_ca]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    depends_on:
+      proxy: {condition: service_healthy}
+  alertmanager:
+    image: prom/alertmanager:v0.34.2
+    restart: unless-stopped
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager", "--cluster.listen-address="]
+    ports: ["127.0.0.1:9093:9093"]
+    volumes:
+      - ./deploy/generated/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    secrets: [alert_webhook]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
 secrets:
   proxy_password:
     file: ./secrets/proxy_password
+  metrics_token:
+    file: ./secrets/metrics_token
+  proxy_tls_cert:
+    file: ./tls/cert.pem
+  proxy_tls_key:
+    file: ./tls/key.pem
+  proxy_ca:
+    file: ./tls/ca.pem
+  alert_webhook:
+    file: ./secrets/alert_webhook
+volumes:
+  prometheus_data:
+  alertmanager_data:
+networks:
+  default:
+    name: anonymity-proxy
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-anonproxy

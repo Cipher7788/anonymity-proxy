@@ -6,3 +6,6 @@ dist
 secrets
 tls
 **/*_test.go
+.env
+deploy/generated
+reports

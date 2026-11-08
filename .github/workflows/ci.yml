@@ -1,9 +1,13 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   test:
+    timeout-minutes: 15
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
@@ -17,10 +21,12 @@ jobs:
       - run: go vet ./...
       - run: go test -race -count=1 ./...
       - run: go build ./cmd/proxy
+      - run: go build ./cmd/proxyctl
       - name: Formatting
         if: runner.os == 'Linux'
         run: test -z "$(gofmt -l cmd internal)"
   security:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,3 +37,94 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - run: go test ./internal/proxy -run=^$ -fuzz=FuzzValidateTarget -fuzztime=15s
       - run: docker build -t anonymity-proxy:ci .
+      - run: mkdir -p reports
+      - uses: anchore/sbom-action@v0.24.3
+        with:
+          image: anonymity-proxy:ci
+          output-file: reports/sbom.spdx.json
+          upload-artifact: false
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: anonymity-proxy:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: json
+          output: reports/image-vulnerabilities.json
+          exit-code: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-evidence
+          path: reports/
+  qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Controlled load and resource recovery
+        run: go test ./internal/proxy -run TestLoadQualification -count=1 -timeout=60s -v
+        env:
+          PROXY_QUALIFY: '1'
+          PROXY_REPORT_DIR: ${{ github.workspace }}/reports
+      - run: shellcheck scripts/*.sh
+      - name: Reviewable firewall plan
+        run: bash scripts/firewall.sh --dry-run > reports/firewall-plan.txt
+        env:
+          CLIENT_CIDR: 192.0.2.0/24
+          DNS_IP: 1.1.1.1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-evidence
+          path: reports/
+  container-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Generate ephemeral test credentials and certificates
+        run: go run ./cmd/proxyctl init -mode development -hostname localhost
+      - name: Validate Compose and monitoring configuration
+        run: |
+          docker compose -f compose.yaml -f compose.runtime.yaml config --quiet
+          docker compose run --rm --no-deps --entrypoint /bin/promtool prometheus check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "$PWD/deploy/monitoring:/rules:ro" --entrypoint /bin/promtool prom/prometheus:v3.16.0 test rules /rules/alerts.test.yml
+          docker compose run --rm --no-deps --entrypoint /bin/amtool alertmanager check-config /etc/alertmanager/alertmanager.yml
+      - name: Start isolated stack
+        run: |
+          sudo bash scripts/runtime-network.sh apply
+          docker compose -f compose.yaml -f compose.runtime.yaml up --build -d --wait --wait-timeout 120
+          if docker compose -f compose.yaml -f compose.runtime.yaml exec -T proxy wget -T 3 -O /dev/null http://1.1.1.1/; then
+            echo 'Runtime internet egress was unexpectedly allowed' >&2
+            exit 1
+          fi
+      - name: Run real container load and failure tests
+        run: go test ./tests -run TestContainerRuntime -count=1 -v -timeout=5m
+        env:
+          PROXY_RUNTIME_TEST: '1'
+          PROXY_DEPLOY_DIR: ${{ github.workspace }}
+      - name: Save runtime evidence
+        if: always()
+        run: |
+          mkdir -p reports
+          docker compose -f compose.yaml -f compose.runtime.yaml ps -a > reports/container-state.txt
+          docker compose -f compose.yaml -f compose.runtime.yaml logs --no-color > reports/container-logs.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-runtime-evidence
+          path: reports/
+      - name: Cleanup isolated stack
+        if: always()
+        run: |
+          docker compose -f compose.yaml -f compose.runtime.yaml down -v --remove-orphans
+          sudo bash scripts/runtime-network.sh remove

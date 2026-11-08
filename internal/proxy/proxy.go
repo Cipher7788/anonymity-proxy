@@ -17,16 +17,22 @@ import (
 )
 
 type Proxy struct {
-	cfg        Config
-	credential [32]byte
-	transport  *http.Transport
-	dial       func(context.Context, string, string) (net.Conn, error)
-	slots      chan struct{}
-	mu         sync.Mutex
-	tunnels    map[net.Conn]struct{}
-	closing    bool
-	requests   atomic.Uint64
-	rejected   atomic.Uint64
+	cfg               Config
+	credential        [32]byte
+	transport         *http.Transport
+	dial              func(context.Context, string, string) (net.Conn, error)
+	slots             chan struct{}
+	mu                sync.Mutex
+	tunnels           map[net.Conn]struct{}
+	closing           bool
+	requests          atomic.Uint64
+	rejected          atomic.Uint64
+	policyDenied      atomic.Uint64
+	upstreamErrors    atomic.Uint64
+	metricsCredential [32]byte
+	metricsEnabled    bool
+	certificateExpiry int64
+	sockets           func() int
 }
 
 func New(c Config, user, password string) (*Proxy, error) {
@@ -44,6 +50,10 @@ func New(c Config, user, password string) (*Proxy, error) {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !r.URL.IsAbs() && r.URL.Path == "/metrics" {
+		p.serveMetrics(w, r)
+		return
+	}
 	p.requests.Add(1)
 	candidate := sha256.Sum256([]byte(r.Header.Get("Proxy-Authorization")))
 	if subtle.ConstantTimeCompare(candidate[:], p.credential[:]) != 1 {
@@ -89,6 +99,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		address = net.JoinHostPort(r.URL.Hostname(), "80")
 	}
 	if _, _, err := validateTarget(address, p.cfg.AllowedPorts); err != nil {
+		p.policyDenied.Add(1)
 		http.Error(w, "destination denied", 403)
 		return
 	}
@@ -103,14 +114,23 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = rc.EnableFullDuplex()
 	deadline := time.Now().Add(p.cfg.RequestTimeout())
 	_ = rc.SetReadDeadline(deadline)
-	_ = rc.SetWriteDeadline(deadline)
+	// Allow a bounded grace period to deliver a timeout error after upstream cancellation.
+	_ = rc.SetWriteDeadline(deadline.Add(time.Second))
 	defer rc.SetReadDeadline(time.Time{})
 	defer rc.SetWriteDeadline(time.Time{})
 	resp, err := p.transport.RoundTrip(out)
 	if err != nil {
+		// A timed-out TLS read can poison a keep-alive connection. Tell the
+		// client to reconnect rather than reusing it for the next request.
+		if ctx.Err() != nil {
+			w.Header().Set("Connection", "close")
+		}
 		code := 502
 		if errors.Is(err, ErrDenied) {
 			code = 403
+			p.policyDenied.Add(1)
+		} else {
+			p.upstreamErrors.Add(1)
 		}
 		http.Error(w, http.StatusText(code), code)
 		return
@@ -163,6 +183,7 @@ func (p *Proxy) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, _, err := validateTarget(r.Host, p.cfg.AllowedPorts); err != nil {
+		p.policyDenied.Add(1)
 		http.Error(w, "destination denied", 403)
 		return
 	}
@@ -173,6 +194,9 @@ func (p *Proxy) connect(w http.ResponseWriter, r *http.Request) {
 		code := 502
 		if errors.Is(err, ErrDenied) {
 			code = 403
+			p.policyDenied.Add(1)
+		} else {
+			p.upstreamErrors.Add(1)
 		}
 		http.Error(w, http.StatusText(code), code)
 		return
