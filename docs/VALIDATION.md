@@ -25,3 +25,9 @@ Not completed here:
 One combined background-process smoke-test command was rejected by automatic approval review. The live egress behavior was subsequently verified through an in-process integration test without launching a persistent background service.
 
 Production approval requires the target-platform checks in DEPLOYMENT.md and ROADMAP.md. No measured throughput, anonymity, DPI resistance or security-audit claim is made.
+
+## Follow-up review
+
+GitHub Actions run 42501127058 passed for commit 5705c8e400cb256aa408be8eb1ce4f1e96ba19f5: Linux/macOS/Windows tests with race detection, static checks, builds, formatting, vulnerability scanning, fuzzing and Docker image build. This verifies those previously unavailable checks for the initial baseline, not container runtime behavior or production load qualification.
+
+A subsequent local regression test reproduced buffering of small server-sent events until timeout. The proxy now flushes response headers and copied chunks. The new regression test, full native test suite and go vet pass locally. Refer to the follow-up commit's checks for its CI results.
