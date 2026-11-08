@@ -2,6 +2,8 @@
 
 ## Unreleased baseline
 
+- Fixed delayed small streaming responses by flushing headers and copied chunks; added an SSE regression test.
+
 - Replaced the non-compiling HTTP scaffold with authenticated HTTP forwarding and HTTPS CONNECT.
 - Added strict JSON config, secret-file support, TLS listener requirements and fail-fast validation.
 - Added public-address/port filtering, DNS rebinding resistance and proxy credential/header isolation.

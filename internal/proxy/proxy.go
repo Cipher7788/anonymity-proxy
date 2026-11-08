@@ -123,9 +123,27 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	if _, err = io.Copy(w, resp.Body); err != nil {
+	if err = rc.Flush(); err != nil {
 		panic(http.ErrAbortHandler)
 	}
+	if _, err = io.Copy(flushingWriter{writer: w, controller: rc}, resp.Body); err != nil {
+		panic(http.ErrAbortHandler)
+	}
+}
+
+// Forward small chunks immediately, including events on long-lived streams.
+// Without an explicit flush, net/http buffers them until its buffer fills.
+type flushingWriter struct {
+	writer     io.Writer
+	controller *http.ResponseController
+}
+
+func (w flushingWriter) Write(b []byte) (int, error) {
+	n, err := w.writer.Write(b)
+	if err == nil {
+		err = w.controller.Flush()
+	}
+	return n, err
 }
 
 func stripHeaders(h http.Header) {

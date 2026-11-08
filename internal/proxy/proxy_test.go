@@ -330,6 +330,39 @@ func TestConcurrentForwarding(t *testing.T) {
 	wg.Wait()
 }
 
+func TestStreamingResponseIsFlushed(t *testing.T) {
+	release := make(chan struct{})
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: first\n\n")
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer origin.Close()
+	defer close(release)
+	p := newTestProxy(t)
+	routeTo(p, strings.TrimPrefix(origin.URL, "http://"))
+	srv := httptest.NewServer(p)
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	u.User = url.UserPassword("tester", testPassword)
+	tr := &http.Transport{Proxy: http.ProxyURL(u)}
+	defer tr.CloseIdleConnections()
+	client := &http.Client{Transport: tr, Timeout: 2 * time.Second}
+	resp, err := client.Get("http://example.com/events")
+	if err != nil {
+		t.Fatal("stream headers were buffered:", err)
+	}
+	defer resp.Body.Close()
+	b := make([]byte, len("data: first\n\n"))
+	if _, err := io.ReadFull(resp.Body, b); err != nil {
+		t.Fatal("stream body was buffered:", err)
+	}
+	if string(b) != "data: first\n\n" {
+		t.Fatalf("unexpected stream %q", b)
+	}
+}
+
 func TestTunnelLifetime(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
