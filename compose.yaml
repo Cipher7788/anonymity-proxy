@@ -1,0 +1,25 @@
+services:
+  proxy:
+    build: .
+    restart: unless-stopped
+    command: ["-config", "/etc/proxy/config.json"]
+    environment:
+      PROXY_USERNAME: ${PROXY_USERNAME:?Set PROXY_USERNAME}
+      PROXY_PASSWORD_FILE: /run/secrets/proxy_password
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./config/container.json:/etc/proxy/config.json:ro
+      - ./tls:/run/tls:ro
+    secrets:
+      - proxy_password
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1.0
+    stop_grace_period: 20s
+secrets:
+  proxy_password:
+    file: ./secrets/proxy_password

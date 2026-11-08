@@ -21,3 +21,8 @@
 *.swo
 *~
 .DS_Store
+secrets/
+tls/
+dist/
+/proxy
+coverage.txt
