@@ -1,0 +1,8 @@
+.git
+work
+dist
+*.exe
+*.zip
+secrets
+tls
+**/*_test.go

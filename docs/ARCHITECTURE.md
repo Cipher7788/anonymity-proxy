@@ -1,27 +1,20 @@
-# Project Architecture
+# Architecture
 
-This document provides a comprehensive overview of the architecture of the Anonymity Proxy project.
+```mermaid
+flowchart LR
+  C[Client] --> L[Bounded TCP / optional TLS listener]
+  L --> A[Authentication]
+  A --> P[Port and resolved IP policy]
+  P --> H[HTTP transport]
+  P --> T[CONNECT tunnel]
+  H --> D[Public destination]
+  T --> D
+```
 
-## Overview
-The Anonymity Proxy aims to provide a means of ensuring user anonymity while using the internet. It does this by routing user requests through various servers to obscure the user's original IP address.
+`cmd/proxy` validates JSON, secret material and certificates, bounds client sockets, and handles signals. `internal/proxy` implements authentication, destination policy, forwarding and tunnel lifecycle. There is no database, client application, Rust service or exit-node network.
 
-## Components
-- **Proxy Servers**: Responsible for handling client requests and forwarding them to target servers.
-- **Client Application**: The user interface that connects to the proxy servers.
-- **Database**: Stores configuration and user data for the application.
+HTTP requires absolute http URLs. Context and client I/O deadlines bound streaming. The transport ignores environment proxy settings. Hop-by-hop and common identity headers are stripped; origin Authorization is preserved. Responses stream with bounded buffers. HTTP Upgrade is unsupported.
 
-## Diagram
-![Architecture Diagram](path/to/architecture-diagram.png)  
-*Insert a diagram of the architecture here.*
+CONNECT requires HTTP/1, an explicit allowed port and no body. The checked public address is dialed, then two copy loops relay bytes, preserving already-buffered client data. Absolute deadlines bound tunnel lifetime; shutdown closes tracked client and upstream connections. Origin TLS remains end-to-end.
 
-## Flow
-1. User connects to the client application.
-2. The client application sends requests to the proxy server.
-3. The proxy server processes and forwards the requests.
-4. Responses are sent back to the client through the proxy.
-
-## Scalability
-The architecture is designed to be scalable by adding more proxy servers as needed to handle increased user load.
-
-## Conclusion
-This architecture allows for a robust and efficient anonymity solution.
+DNS answers are validated as a set, then dialed as literal IPs. Policy denial returns 403, authentication failure 407, upstream failure 502, capacity/shutdown 503. Upstream error details are not exposed to clients. Socket limits include unauthenticated, TLS-handshake, idle and tunnel clients. Host/container resource budgets remain necessary.

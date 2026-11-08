@@ -1,0 +1,9 @@
+{
+  "listen": "0.0.0.0:8080",
+  "tls_cert": "/run/tls/cert.pem",
+  "tls_key": "/run/tls/key.pem",
+  "max_concurrent": 128,
+  "request_timeout_seconds": 60,
+  "tunnel_timeout_seconds": 300,
+  "allowed_ports": ["80", "443"]
+}
