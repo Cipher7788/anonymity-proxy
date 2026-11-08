@@ -38,6 +38,10 @@ func TestInitializerAndTLSImport(t *testing.T) {
 	if _, _, _, e := importedTLS(o); e == nil {
 		t.Fatal("accepted mismatched hostname")
 	}
+	o.Hostname = ""
+	if _, _, _, e := importedTLS(o); e == nil {
+		t.Fatal("accepted import without hostname verification")
+	}
 	if e := Init(InitOptions{Directory: t.TempDir(), Mode: "development", Hostname: "localhost", BindIP: "0.0.0.0"}); e == nil {
 		t.Fatal("exposed development credentials")
 	}

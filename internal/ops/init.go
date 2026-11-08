@@ -51,6 +51,9 @@ func developmentTLS(host string) ([]byte, []byte, []byte, error) {
 }
 
 func importedTLS(o InitOptions) ([]byte, []byte, []byte, error) {
+	if !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$`).MatchString(o.Hostname) {
+		return nil, nil, nil, errors.New("certificate import requires an explicit valid hostname")
+	}
 	cert, e := os.ReadFile(o.CertFile)
 	if e != nil {
 		return nil, nil, nil, e
