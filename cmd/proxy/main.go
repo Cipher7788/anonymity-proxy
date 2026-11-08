@@ -102,7 +102,7 @@ func run() error {
 	if *check {
 		return nil
 	}
-	srv := &http.Server{Addr: c.Listen, Handler: p, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: c.RequestTimeout(), WriteTimeout: c.RequestTimeout(), IdleTimeout: 30 * time.Second, MaxHeaderBytes: 32 << 10, TLSConfig: tlsConfig, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, ErrorLog: log.New(io.Discard, "", 0)}
+	srv := &http.Server{Addr: c.Listen, Handler: p, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: c.RequestTimeout(), WriteTimeout: c.RequestTimeout() + time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 32 << 10, TLSConfig: tlsConfig, TLSNextProto: map[string]func(*http.Server, *tls.Conn, http.Handler){}, ErrorLog: log.New(io.Discard, "", 0)}
 	listener, err := net.Listen("tcp", c.Listen)
 	if err != nil {
 		return err

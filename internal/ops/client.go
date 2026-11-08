@@ -102,7 +102,7 @@ func Health(ctx context.Context, listen string, tlsEnabled bool, serverName, caF
 	req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(user+":"+password)))
 	resp, e := c.Do(req)
 	if e != nil {
-		return errors.New("health connection or certificate verification failed")
+		return fmt.Errorf("health connection or certificate verification failed: %w", e)
 	}
 	defer resp.Body.Close()
 	b, e := io.ReadAll(io.LimitReader(resp.Body, 1024))

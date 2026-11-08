@@ -74,14 +74,16 @@ Update clients' password manager entry afterward. File-backed Compose secrets re
 
 ## Load and failure evidence
 
-CI uses a separate internal-only Docker network and controlled origin; it does not weaken production address policy. The deliberately synthetic 11.254.0.0/24 subnet is never attached to an internet-routed deployment. Do not run the isolated stack beside production because it uses the same localhost ports.
+CI uses a separate bridge, explicit rules rejecting new external egress, and a controlled origin; it does not weaken production address policy. The deliberately synthetic 11.254.0.0/24 subnet must remain isolated by the runtime firewall. Published host ports remain reachable so the runner can exercise the stack. Do not run it beside production because it uses the same localhost ports.
 
 ```sh
 # Use a clean development setup and stop the normal stack first.
 docker compose down
+sudo bash scripts/runtime-network.sh apply
 docker compose -f compose.yaml -f compose.runtime.yaml up --build -d --wait
 PROXY_RUNTIME_TEST=1 PROXY_DEPLOY_DIR="$PWD" go test ./tests -run TestContainerRuntime -v -count=1 -timeout=5m
 docker compose -f compose.yaml -f compose.runtime.yaml down -v --remove-orphans
+sudo bash scripts/runtime-network.sh remove
 ```
 
 Tests cover verified TLS, authentication, HTTP/HTTPS forwarding, private/metadata denial, reset and timeout behavior, streaming, metric isolation, tunnel expiry, load, non-root/read-only/resource settings, monitoring scraping, graceful shutdown, and crash recovery. --down -v deletes only this disposable test stack's named volumes; never use that command on production monitoring data.

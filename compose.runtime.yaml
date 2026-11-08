@@ -1,4 +1,5 @@
-# CI/testing only: no internet route. The synthetic global-looking subnet allows
+# CI/testing only: scripts/runtime-network.sh blocks new internet egress.
+# The synthetic global-looking subnet allows
 # exercising the unchanged public-only dial policy against a controlled fixture.
 # Never attach this network/subnet to a production deployment.
 services:
@@ -21,7 +22,7 @@ services:
 networks:
   default:
     name: anonymity-proxy-runtime
-    internal: true
+    internal: false
     driver_opts:
       com.docker.network.bridge.name: br-anon-test
     ipam:

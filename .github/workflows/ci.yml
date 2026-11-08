@@ -100,7 +100,13 @@ jobs:
           docker run --rm -v "$PWD/deploy/monitoring:/rules:ro" --entrypoint /bin/promtool prom/prometheus:v3.16.0 test rules /rules/alerts.test.yml
           docker compose run --rm --no-deps --entrypoint /bin/amtool alertmanager check-config /etc/alertmanager/alertmanager.yml
       - name: Start isolated stack
-        run: docker compose -f compose.yaml -f compose.runtime.yaml up --build -d --wait --wait-timeout 120
+        run: |
+          sudo bash scripts/runtime-network.sh apply
+          docker compose -f compose.yaml -f compose.runtime.yaml up --build -d --wait --wait-timeout 120
+          if docker compose -f compose.yaml -f compose.runtime.yaml exec -T proxy wget -T 3 -O /dev/null http://1.1.1.1/; then
+            echo 'Runtime internet egress was unexpectedly allowed' >&2
+            exit 1
+          fi
       - name: Run real container load and failure tests
         run: go test ./tests -run TestContainerRuntime -count=1 -v -timeout=5m
         env:
@@ -119,4 +125,6 @@ jobs:
           path: reports/
       - name: Cleanup isolated stack
         if: always()
-        run: docker compose -f compose.yaml -f compose.runtime.yaml down -v --remove-orphans
+        run: |
+          docker compose -f compose.yaml -f compose.runtime.yaml down -v --remove-orphans
+          sudo bash scripts/runtime-network.sh remove

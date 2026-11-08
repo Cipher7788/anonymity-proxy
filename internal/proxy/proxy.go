@@ -114,7 +114,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = rc.EnableFullDuplex()
 	deadline := time.Now().Add(p.cfg.RequestTimeout())
 	_ = rc.SetReadDeadline(deadline)
-	_ = rc.SetWriteDeadline(deadline)
+	// Allow a bounded grace period to deliver a timeout error after upstream cancellation.
+	_ = rc.SetWriteDeadline(deadline.Add(time.Second))
 	defer rc.SetReadDeadline(time.Time{})
 	defer rc.SetWriteDeadline(time.Time{})
 	resp, err := p.transport.RoundTrip(out)

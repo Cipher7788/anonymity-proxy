@@ -47,7 +47,7 @@ func TestContainerRuntime(t *testing.T) {
 	}
 	direct := &http.Client{Transport: &http.Transport{TLSClientConfig: tc}, Timeout: 5 * time.Second}
 	defer direct.CloseIdleConnections()
-	get := func(target string, status int) {
+	get := func(t *testing.T, target string, status int) {
 		t.Helper()
 		resp, e := client.Get(target)
 		if e != nil {
@@ -62,7 +62,7 @@ func TestContainerRuntime(t *testing.T) {
 	health := func() error {
 		return ops.Health(context.Background(), "127.0.0.1:8080", true, "localhost", ca, "operator", password)
 	}
-	waitHealthy := func() {
+	waitHealthy := func(t *testing.T) {
 		t.Helper()
 		deadline := time.Now().Add(45 * time.Second)
 		for time.Now().Before(deadline) {
@@ -73,7 +73,7 @@ func TestContainerRuntime(t *testing.T) {
 		}
 		t.Fatal("proxy did not recover")
 	}
-	docker := func(args ...string) []byte {
+	docker := func(t *testing.T, args ...string) []byte {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 		defer cancel()
@@ -87,7 +87,7 @@ func TestContainerRuntime(t *testing.T) {
 		return b
 	}
 	t.Run("readiness_auth_and_verified_TLS", func(t *testing.T) {
-		waitHealthy()
+		waitHealthy(t)
 		r, e := direct.Get("https://localhost:8080/healthz")
 		if e != nil {
 			t.Fatal(e)
@@ -100,12 +100,12 @@ func TestContainerRuntime(t *testing.T) {
 			t.Fatal("untrusted proxy certificate accepted")
 		}
 	})
-	t.Run("HTTP_and_HTTPS", func(t *testing.T) { get("http://origin:8081/ok", 200); get("https://origin:8443/ok", 200) })
-	t.Run("private_and_metadata_denial", func(t *testing.T) { get("http://127.0.0.1:8081/", 403); get("http://169.254.169.254:8081/", 403) })
+	t.Run("HTTP_and_HTTPS", func(t *testing.T) { get(t, "http://origin:8081/ok", 200); get(t, "https://origin:8443/ok", 200) })
+	t.Run("private_and_metadata_denial", func(t *testing.T) { get(t, "http://127.0.0.1:8081/", 403); get(t, "http://169.254.169.254:8081/", 403) })
 	t.Run("upstream_reset_and_timeout", func(t *testing.T) {
-		get("http://origin:8081/reset", 502)
+		get(t, "http://origin:8081/reset", 502)
 		start := time.Now()
-		get("http://origin:8081/slow", 502)
+		get(t, "http://origin:8081/slow", 502)
 		if time.Since(start) > 5*time.Second {
 			t.Fatal("timeout not enforced")
 		}
@@ -171,7 +171,7 @@ func TestContainerRuntime(t *testing.T) {
 		}
 	})
 	t.Run("read_only_nonroot_and_limits", func(t *testing.T) {
-		id := strings.TrimSpace(string(docker("ps", "-q", "proxy")))
+		id := strings.TrimSpace(string(docker(t, "ps", "-q", "proxy")))
 		cmd := exec.Command("docker", "inspect", id)
 		b, e := cmd.Output()
 		if e != nil {
@@ -195,7 +195,7 @@ func TestContainerRuntime(t *testing.T) {
 	t.Run("monitoring_scrape", func(t *testing.T) {
 		deadline := time.Now().Add(45 * time.Second)
 		for time.Now().Before(deadline) {
-			r, e := http.Get("http://127.0.0.1:9090/api/v1/targets")
+			r, e := (&http.Client{Timeout: 3 * time.Second}).Get("http://127.0.0.1:9090/api/v1/targets")
 			if e == nil {
 				var out struct {
 					Data struct{ ActiveTargets []struct{ Health string } }
@@ -212,18 +212,18 @@ func TestContainerRuntime(t *testing.T) {
 	})
 	t.Run("graceful_stop_and_restart", func(t *testing.T) {
 		client.CloseIdleConnections()
-		docker("stop", "-t", "20", "proxy")
-		defer docker("start", "proxy")
-		logs := docker("logs", "--no-color", "proxy")
+		docker(t, "stop", "-t", "20", "proxy")
+		defer docker(t, "start", "proxy")
+		logs := docker(t, "logs", "--no-color", "proxy")
 		if !strings.Contains(string(logs), "proxy stopped") {
 			t.Fatal("no graceful shutdown record")
 		}
-		docker("start", "proxy")
-		waitHealthy()
+		docker(t, "start", "proxy")
+		waitHealthy(t)
 	})
 	t.Run("crash_recovery", func(t *testing.T) {
 		client.CloseIdleConnections()
-		docker("kill", "-s", "KILL", "proxy")
-		waitHealthy()
+		docker(t, "kill", "-s", "KILL", "proxy")
+		waitHealthy(t)
 	})
 }
