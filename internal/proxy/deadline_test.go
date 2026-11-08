@@ -11,7 +11,13 @@ import (
 )
 
 func TestServerDeadlineAllowsTimeoutResponse(t *testing.T) {
-	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stream" {
+			_, _ = io.WriteString(w, "data: first\n\n")
+			w.(http.Flusher).Flush()
+		}
+		<-r.Context().Done()
+	}))
 	defer origin.Close()
 	p := newTestProxy(t)
 	p.cfg.RequestTimeoutSeconds = 1
@@ -34,5 +40,15 @@ func TestServerDeadlineAllowsTimeoutResponse(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != 502 {
 		t.Fatalf("got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	stream, e := client.Get("http://example.com/stream")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer stream.Body.Close()
+	b := make([]byte, len("data: first\n\n"))
+	if n, e := io.ReadFull(stream.Body, b); e != nil || string(b) != "data: first\n\n" {
+		t.Fatalf("stream after timeout: status=%d bytes=%d body=%q error=%v", stream.StatusCode, n, b, e)
 	}
 }

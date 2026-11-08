@@ -120,6 +120,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer rc.SetWriteDeadline(time.Time{})
 	resp, err := p.transport.RoundTrip(out)
 	if err != nil {
+		// A timed-out TLS read can poison a keep-alive connection. Tell the
+		// client to reconnect rather than reusing it for the next request.
+		if ctx.Err() != nil {
+			w.Header().Set("Connection", "close")
+		}
 		code := 502
 		if errors.Is(err, ErrDenied) {
 			code = 403

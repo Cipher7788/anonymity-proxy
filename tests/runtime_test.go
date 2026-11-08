@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -117,8 +118,8 @@ func TestContainerRuntime(t *testing.T) {
 		}
 		defer r.Body.Close()
 		b := make([]byte, len("data: first\n\n"))
-		if _, e = io.ReadFull(r.Body, b); e != nil || string(b) != "data: first\n\n" {
-			t.Fatal("streaming failed", e)
+		if n, e := io.ReadFull(r.Body, b); e != nil || string(b) != "data: first\n\n" {
+			t.Fatalf("streaming failed: status=%d bytes=%d body=%q error=%v", r.StatusCode, n, b, e)
 		}
 	})
 	t.Run("metrics_isolation", func(t *testing.T) {
@@ -223,7 +224,34 @@ func TestContainerRuntime(t *testing.T) {
 	})
 	t.Run("crash_recovery", func(t *testing.T) {
 		client.CloseIdleConnections()
-		docker(t, "kill", "-s", "KILL", "proxy")
+		// Docker arms restart monitoring after ten successful seconds. An
+		// exec-triggered Go runtime abort is a process crash, not a manual stop.
+		time.Sleep(11 * time.Second)
+		id := strings.TrimSpace(string(docker(t, "ps", "-q", "proxy")))
+		restarts := func() int {
+			b, e := exec.Command("docker", "inspect", "--format", "{{.RestartCount}}", id).Output()
+			if e != nil {
+				t.Fatal(e)
+			}
+			n, e := strconv.Atoi(strings.TrimSpace(string(b)))
+			if e != nil {
+				t.Fatal(e)
+			}
+			return n
+		}
+		before := restarts()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		// exec may itself be killed when PID 1 aborts; its exit status is not
+		// the assertion. The container's restart count and health are.
+		_, _ = exec.CommandContext(ctx, "docker", "exec", id, "sh", "-c", "kill -ABRT 1").CombinedOutput()
+		deadline := time.Now().Add(45 * time.Second)
+		for restarts() <= before && time.Now().Before(deadline) {
+			time.Sleep(250 * time.Millisecond)
+		}
+		if restarts() <= before {
+			t.Fatal("process crash did not trigger automatic restart")
+		}
 		waitHealthy(t)
 	})
 }
