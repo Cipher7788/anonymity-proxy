@@ -1,0 +1,9 @@
+{
+  "listen": "0.0.0.0:8080",
+  "tls_cert": "/run/secrets/proxy_tls_cert",
+  "tls_key": "/run/secrets/proxy_tls_key",
+  "max_concurrent": 32,
+  "request_timeout_seconds": 2,
+  "tunnel_timeout_seconds": 3,
+  "allowed_ports": ["8081", "8443"]
+}

@@ -17,16 +17,22 @@ import (
 )
 
 type Proxy struct {
-	cfg        Config
-	credential [32]byte
-	transport  *http.Transport
-	dial       func(context.Context, string, string) (net.Conn, error)
-	slots      chan struct{}
-	mu         sync.Mutex
-	tunnels    map[net.Conn]struct{}
-	closing    bool
-	requests   atomic.Uint64
-	rejected   atomic.Uint64
+	cfg               Config
+	credential        [32]byte
+	transport         *http.Transport
+	dial              func(context.Context, string, string) (net.Conn, error)
+	slots             chan struct{}
+	mu                sync.Mutex
+	tunnels           map[net.Conn]struct{}
+	closing           bool
+	requests          atomic.Uint64
+	rejected          atomic.Uint64
+	policyDenied      atomic.Uint64
+	upstreamErrors    atomic.Uint64
+	metricsCredential [32]byte
+	metricsEnabled    bool
+	certificateExpiry int64
+	sockets           func() int
 }
 
 func New(c Config, user, password string) (*Proxy, error) {
@@ -44,6 +50,10 @@ func New(c Config, user, password string) (*Proxy, error) {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !r.URL.IsAbs() && r.URL.Path == "/metrics" {
+		p.serveMetrics(w, r)
+		return
+	}
 	p.requests.Add(1)
 	candidate := sha256.Sum256([]byte(r.Header.Get("Proxy-Authorization")))
 	if subtle.ConstantTimeCompare(candidate[:], p.credential[:]) != 1 {
@@ -89,6 +99,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		address = net.JoinHostPort(r.URL.Hostname(), "80")
 	}
 	if _, _, err := validateTarget(address, p.cfg.AllowedPorts); err != nil {
+		p.policyDenied.Add(1)
 		http.Error(w, "destination denied", 403)
 		return
 	}
@@ -111,6 +122,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		code := 502
 		if errors.Is(err, ErrDenied) {
 			code = 403
+			p.policyDenied.Add(1)
+		} else {
+			p.upstreamErrors.Add(1)
 		}
 		http.Error(w, http.StatusText(code), code)
 		return
@@ -163,6 +177,7 @@ func (p *Proxy) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, _, err := validateTarget(r.Host, p.cfg.AllowedPorts); err != nil {
+		p.policyDenied.Add(1)
 		http.Error(w, "destination denied", 403)
 		return
 	}
@@ -173,6 +188,9 @@ func (p *Proxy) connect(w http.ResponseWriter, r *http.Request) {
 		code := 502
 		if errors.Is(err, ErrDenied) {
 			code = 403
+			p.policyDenied.Add(1)
+		} else {
+			p.upstreamErrors.Add(1)
 		}
 		http.Error(w, http.StatusText(code), code)
 		return

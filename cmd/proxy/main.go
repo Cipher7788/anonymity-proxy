@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Cipher7788/anonymity-proxy/internal/ops"
 	"github.com/Cipher7788/anonymity-proxy/internal/proxy"
 )
 
@@ -50,21 +52,18 @@ func (l *limitedListener) Accept() (net.Conn, error) {
 func run() error {
 	path := flag.String("config", "", "JSON configuration file")
 	check := flag.Bool("check-config", false, "validate configuration and credentials without listening")
+	health := flag.Bool("healthcheck", false, "check the configured listener with certificate verification")
 	flag.Parse()
 	c, err := proxy.LoadConfig(*path)
 	if err != nil {
 		return err
 	}
-	password := os.Getenv("PROXY_PASSWORD")
-	if secret := os.Getenv("PROXY_PASSWORD_FILE"); secret != "" {
-		b, e := os.ReadFile(secret)
-		if e != nil {
-			return e
-		}
-		password = string(b)
-		for len(password) > 0 && (password[len(password)-1] == '\n' || password[len(password)-1] == '\r') {
-			password = password[:len(password)-1]
-		}
+	password, err := ops.Secret("PROXY_PASSWORD")
+	if err != nil {
+		return err
+	}
+	if *health {
+		return ops.Health(context.Background(), c.Listen, c.TLSCert != "", os.Getenv("PROXY_TLS_SERVER_NAME"), os.Getenv("PROXY_CA_FILE"), os.Getenv("PROXY_USERNAME"), password)
 	}
 	p, err := proxy.New(c, os.Getenv("PROXY_USERNAME"), password)
 	if err != nil {
@@ -72,12 +71,33 @@ func run() error {
 	}
 	defer p.Close()
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}}
+	var expiry int64
 	if c.TLSCert != "" {
 		cert, e := tls.LoadX509KeyPair(c.TLSCert, c.TLSKey)
 		if e != nil {
 			return e
 		}
 		tlsConfig.Certificates = []tls.Certificate{cert}
+		leaf, e := x509.ParseCertificate(cert.Certificate[0])
+		if e != nil {
+			return e
+		}
+		expiry = leaf.NotAfter.Unix()
+	}
+	token, err := ops.Secret("PROXY_METRICS_TOKEN")
+	if err != nil {
+		return err
+	}
+	var bounded *limitedListener
+	if token != "" {
+		if err = p.ConfigureMetrics(token, expiry, func() int {
+			if bounded == nil {
+				return 0
+			}
+			return len(bounded.slots)
+		}); err != nil {
+			return err
+		}
 	}
 	if *check {
 		return nil
@@ -87,7 +107,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	bounded := &limitedListener{Listener: listener, slots: make(chan struct{}, c.MaxConcurrent)}
+	bounded = &limitedListener{Listener: listener, slots: make(chan struct{}, c.MaxConcurrent)}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	done := make(chan error, 1)

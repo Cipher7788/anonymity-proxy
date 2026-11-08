@@ -31,3 +31,9 @@ Production approval requires the target-platform checks in DEPLOYMENT.md and ROA
 GitHub Actions run 42501127058 passed for commit 5705c8e400cb256aa408be8eb1ce4f1e96ba19f5: Linux/macOS/Windows tests with race detection, static checks, builds, formatting, vulnerability scanning, fuzzing and Docker image build. This verifies those previously unavailable checks for the initial baseline, not container runtime behavior or production load qualification.
 
 A subsequent local regression test reproduced buffering of small server-sent events until timeout. The proxy now flushes response headers and copied chunks. The new regression test, full native test suite and go vet pass locally. Refer to the follow-up commit's checks for its CI results.
+
+## Deployment tooling follow-up
+
+Local Windows checks passed for the new operator tooling, certificate import/hostname verification, bounded secret loading, health TLS verification, metrics credential isolation and load acceptance gates. The short controlled load test completed 74,609 requests in approximately five seconds with zero errors, p95 2 ms, goroutines returning from 2 to 2, and allocated heap returning below the 32 MiB growth budget. This is a local regression workload with a controlled loopback origin and test-only dialer, not an internet or production throughput claim.
+
+New CI jobs validate monitoring configuration/rules, image vulnerabilities/SBOM, controlled load/resource recovery, and isolated Docker runtime failure/load/restart behavior. Inspect this change's workflow artifacts for actual results; configuration alone is not evidence of execution. No real hosting server, public certificate, network firewall or notification receiver was provisioned in this session. The independent-review record remains PENDING.

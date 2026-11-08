@@ -1,0 +1,29 @@
+# CI/testing only: no internet route. The synthetic global-looking subnet allows
+# exercising the unchanged public-only dial policy against a controlled fixture.
+# Never attach this network/subnet to a production deployment.
+services:
+  proxy:
+    volumes:
+      - ./tests/runtime-config.json:/etc/proxy/config.json:ro
+  origin:
+    build:
+      context: .
+      dockerfile: tests/fixture/Dockerfile
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+    pids_limit: 64
+    secrets: [proxy_tls_cert, proxy_tls_key]
+    networks:
+      default:
+        ipv4_address: 11.254.0.20
+networks:
+  default:
+    name: anonymity-proxy-runtime
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.name: br-anon-test
+    ipam:
+      config:
+        - subnet: 11.254.0.0/24

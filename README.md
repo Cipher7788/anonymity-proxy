@@ -54,15 +54,19 @@ Only public destinations are accepted. Private, loopback, link-local, multicast 
 
 ## Containers
 
-See [deployment instructions](docs/DEPLOYMENT.md). Supply `tls/cert.pem`, `tls/key.pem`, `secrets/proxy_password`, and environment variable `PROXY_USERNAME` first:
+See [Linux deployment instructions](docs/DEPLOYMENT.md). Initialize a local development stack first:
 
 ```sh
-docker compose config
-docker compose up --build -d
+go build -trimpath -o dist/proxyctl ./cmd/proxyctl
+./dist/proxyctl init -mode development -hostname localhost
+docker compose config --quiet
+docker compose up --build -d --wait
 docker compose logs --tail 30
 ```
 
 Compose publishes to host loopback only. The container uses TLS, a non-root account, read-only root filesystem, dropped capabilities and CPU/memory/PID limits. Missing secrets or certificates cause startup failure.
+
+Production initialization imports and verifies a real hostname certificate and configures an HTTPS alert webhook. Use the deployment guide for production flags, firewall review, renewal hooks and secret rotation. Development certificates are never production credentials. Prometheus/Alertmanager are included on loopback ports 9090/9093; metrics use a separate read-only token.
 
 ## Operations
 
@@ -71,6 +75,8 @@ Authenticated origin-form `GET /healthz` returns `{"status":"ready"}`. Send `Pro
 Startup/shutdown logs contain listener information and aggregate request and authentication/capacity rejection counts. URLs, bodies, credentials and client IPs are not intentionally logged; external infrastructure may still log them. Destination rejections are represented by HTTP status rather than that aggregate rejection counter.
 
 SIGTERM/Ctrl+C closes tracked tunnels and drains HTTP requests for up to 15 seconds. Credentials, configuration and renewed certificates require restart. Clients reconnect after tunnel lifetime expiry.
+
+Container health checks use `proxy -config /etc/proxy/config.json -healthcheck` with TLS verification. Set PROXY_METRICS_TOKEN_FILE to enable authenticated /metrics for native deployments; monitoring tokens cannot proxy traffic. Atomically replaced file-backed Compose secrets and renewed certificates require container recreation, not just restart.
 
 ## Validation
 
@@ -81,11 +87,14 @@ go vet ./...
 go test ./internal/proxy -run=^$ -fuzz=FuzzValidateTarget -fuzztime=15s
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 docker build -t anonymity-proxy .
+PROXY_QUALIFY=1 PROXY_REPORT_DIR="$PWD/reports" go test ./internal/proxy -run TestLoadQualification -count=1
 ```
 
 Integration tests cover forwarding/streaming, header isolation, HTTPS tunnels with certificate validation, buffered CONNECT bytes, shutdown, authentication, private destinations, timeouts, capacity and config validation. A local upstream dialer is injected only by tests; production has no bypass. CI runs native checks on Linux, macOS and Windows and security/Docker checks on Linux.
 
 An optional live integration test checks real public HTTP and HTTPS egress: set `PROXY_TEST_INTERNET=1` and run `go test ./internal/proxy -run TestPublicInternet -count=1`. It contacts example.com through an ephemeral local proxy and sends no proxy credentials to the origin.
+
+CI also runs controlled load/resource recovery, real container failure/restart/shutdown tests, monitoring config/rule validation, image scanning and SBOM generation. Evidence is uploaded as workflow artifacts. For host testing use scripts/qualify-host.sh; for independent review use [the reviewer handoff](security/REVIEW.md) and [release checklist](docs/RELEASE_CHECKLIST.md). A pending reviewer record is not an audit approval.
 
 ## Limits
 

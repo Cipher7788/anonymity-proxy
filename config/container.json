@@ -1,7 +1,7 @@
 {
   "listen": "0.0.0.0:8080",
-  "tls_cert": "/run/tls/cert.pem",
-  "tls_key": "/run/tls/key.pem",
+  "tls_cert": "/run/secrets/proxy_tls_cert",
+  "tls_key": "/run/secrets/proxy_tls_key",
   "max_concurrent": 128,
   "request_timeout_seconds": 60,
   "tunnel_timeout_seconds": 300,

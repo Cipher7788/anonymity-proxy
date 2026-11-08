@@ -1,0 +1,33 @@
+groups:
+  - name: proxy
+    rules:
+      - alert: ProxyDown
+        expr: up{job="proxy"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: Proxy TLS or metrics endpoint is unavailable
+      - alert: ProxyCertificateExpiring
+        expr: (proxy_tls_certificate_expiry_timestamp_seconds - time() < 14 * 86400) and (proxy_tls_certificate_expiry_timestamp_seconds > 0)
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: Proxy TLS certificate expires in less than 14 days
+      - alert: ProxyNearCapacity
+        expr: proxy_open_connections / proxy_capacity > 0.85
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Proxy client sockets are near capacity
+      - alert: ProxyUpstreamFailures
+        expr: (rate(proxy_upstream_errors_total[5m]) / clamp_min(rate(proxy_requests_total[5m]), 0.001) > 0.05) and (rate(proxy_requests_total[5m]) > 0)
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: More than five percent of requests have upstream errors
+      - alert: ProxyHeapHigh
+        expr: proxy_heap_bytes > 192 * 1024 * 1024
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Go heap is above 192 MiB
