@@ -52,7 +52,7 @@ jobs:
           format: json
           output: reports/image-vulnerabilities.json
           exit-code: '1'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: security-evidence
@@ -77,7 +77,7 @@ jobs:
         env:
           CLIENT_CIDR: 192.0.2.0/24
           DNS_IP: 1.1.1.1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: load-evidence
@@ -118,7 +118,7 @@ jobs:
           mkdir -p reports
           docker compose -f compose.yaml -f compose.runtime.yaml ps -a > reports/container-state.txt
           docker compose -f compose.yaml -f compose.runtime.yaml logs --no-color > reports/container-logs.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: container-runtime-evidence
